@@ -21,7 +21,8 @@ To reproduce the analysis:
   
 3. Install the required dependencies with renv.
   ```
-  renv::activate()
+  install.packages("renv")
+  renv::restore()
   ```
 4. Run code within the `mapping-analysis.Rmd` notebook.
 
