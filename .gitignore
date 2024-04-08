@@ -3,3 +3,5 @@
 .RData
 .Ruserdata
 renv/*
+*.DS_Store
+._*

@@ -38,7 +38,7 @@ The analysis performed on includes:
 The repository includes the following files:
 
 - `data/`: Directory containing the dataset files.
-- `results/`: Directory containing the results of the analysis.
+- `figures/`: Directory containing the results of the analysis.
 - `mapping-analysis.Rmd`: Markdown file providing an overview of the mapping analysis.
 
 ## Contributors
