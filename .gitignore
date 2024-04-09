@@ -5,3 +5,6 @@
 renv/*
 *.DS_Store
 ._*
+mapping-analysis_cache/*
+mapping-analysis_files/*
+data/sample-extended.csv

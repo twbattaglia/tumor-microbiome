@@ -29,15 +29,14 @@ To reproduce the analysis:
 ## Analysis Overview
 The analysis performed on includes:
 
-- Data preprocessing
+- Data pre-processing
 - Exploratory data analysis (EDA)
 - Statistical analysis
-- Results interpretation
 
 ## Files
 The repository includes the following files:
 
-- `data/`: Directory containing the dataset files.
+- `data/`: Directory containing the dataset files. (Note: DNA/RNA metrics are not available )
 - `figures/`: Directory containing the results of the analysis.
 - `mapping-analysis.Rmd`: Markdown file providing an overview of the mapping analysis.
 
