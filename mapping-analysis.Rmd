@@ -53,7 +53,7 @@ sample_data(Hartwig) %>%
 
 ### Attributes
 ```{r}
-aerophilicity = read_csv("data/aerophilicity.csv") %>% 
+aerophilicity = read_csv("resources/aerophilicity.csv") %>% 
   filter(Score > 0.5) %>% 
   mutate(NCBI_ID = as.character(NCBI_ID)) %>% 
   mutate(Attribute2 = case_when(
@@ -64,9 +64,13 @@ aerophilicity = read_csv("data/aerophilicity.csv") %>%
     Attribute %in% c("missing") ~ "missing"
   ))
 
-gram_status = read_csv("data/gram_status.csv") %>% 
+gram_status = read_csv("resources/gram_status.csv") %>% 
   filter(Score > 0.5) %>% 
   mutate(NCBI_ID = as.character(NCBI_ID))
+
+pseq.fil.taxtable = tax_table(Hartwig) %>% 
+  as.data.frame() %>% 
+  rownames_to_column("taxId")
 
 # Set colors
 o2status.colors = c("Aerobic" = "#D36135", 
@@ -75,31 +79,57 @@ o2status.colors = c("Aerobic" = "#D36135",
                     "microaerophilic" = "#E6AA68", 
                     "Not available" = "gray")
 gram.colors = c("Gram-" = "#DFBBB1", "Gram+" = "#726DA8", "Not available" = "gray")
+
+trt.colors = pal_npg("nrc", alpha = 0.7)(10) 
+names(trt.colors) = meta(Hartwig)$treatmentType %>%  as.factor() %>% levels()
+trt.colors["Not available"] = "gray"
+
+primary.colors = microViz::distinct_palette(n = 20, pal = "brewerPlus", add = "lightgrey")
+names(primary.colors) = meta(Hartwig)$primaryTumorLocation %>% unique()
+
 ```
 
 ### Extended data
+Please be aware that this extended data includes patient genome and transcriptome information. These datatypes are pending authorization for public release, therefore we cannot make this data public at this time. For published information, please see the information contained within: https://www.nature.com/articles/s41586-023-06054-z. 
 ```{r}
+extended.data = read_csv("data/extended-metadata.csv")
 
-purple.metadata = read_csv("/DATA/share/Voesties/data/harmonize/output/metadata-purple.csv") %>% 
-  filter(sampleId %in% sample_names(pseq.all))
+sampledata.extended = meta(Hartwig) %>% 
+  left_join(select(extended.data, hmfSampleId, B44, B07, SBS1, tml, wholeGenomeDuplication))
 
-snv_mutsigs = read.csv("/DATA/share/Voesties/data/harmonize/output/mutsigs/MutationalPatterns/mutationalpatterns-snv-strict.csv") %>%
-  select(-sig_etiology) %>% 
-  column_to_rownames("SBS") %>% 
-  t() %>% 
-  as.data.frame() %>% 
-  rownames_to_column("sampleId")
+# Gene signatures
+gsva.signatures = read_csv("data/gsva-signatures.csv") %>% 
+  left_join(select(extended.data, sampleId, hmfSampleId)) %>% 
+  relocate(hmfSampleId) %>% 
+  select(-sampleId)
 
-hla_supertypes = read_csv("/DATA/share/Voesties/data/harmonize/output/mhc_class_i/midas-all-supertypes.csv") %>% 
-  pivot_longer(cols = -sampleId) %>% 
-  mutate(value = if_else(value > 0 , "HET/HOM", "WT")) %>% 
-  pivot_wider(id_cols = sampleId, names_from = name, values_from = value)
+# TIDEpy
+tidepy = read_csv("data/tidepy.csv") %>% 
+  left_join(select(extended.data, sampleId, hmfSampleId)) %>% 
+  relocate(hmfSampleId) %>% 
+  select(-sampleId)
 
-sampledata.extended = meta(Harwtig) %>% 
-  inner_join(hla_supertypes) %>% 
-  inner_join(snv_mutsigs) %>% 
-  left_join(select(purple.data, sampleId, msStatus, tml, wholeGenomeDuplication), by = "sampleId")
+# Progeny
+progeny = read_csv("data/progeny.csv") %>% 
+  left_join(select(extended.data, sampleId, hmfSampleId)) %>% 
+  relocate(hmfSampleId) %>% 
+  select(-sampleId)
 
+# CIBERSORT
+cibersort = read_csv("data/cibersort_abs.csv") %>% 
+  left_join(select(extended.data, sampleId, hmfSampleId)) %>% 
+  relocate(hmfSampleId) %>% 
+  select(-sampleId)
+
+# Immune signatures
+immune.signatures = read_csv("data/immune_signatures.csv") %>% 
+  left_join(select(extended.data, sampleId, hmfSampleId)) %>% 
+  relocate(hmfSampleId) %>% 
+  select(-sampleId)
+
+read_csv("/DATA/share/Voesties/data/harmonize/output/rnaseq/immune/immune-signatures-cpm.csv") %>% 
+  rename(sampleId = sample_id) %>% 
+  write_csv("data/immune_signatures.csv")
 ```
 
 
@@ -113,14 +143,14 @@ sampledata.extended = meta(Harwtig) %>%
 ### Phylogenetic tree
 ```{r}
 # Import graphlan tree
-tree.genus = treeio::read.phyloxml("data/graphlan.genus.xml")
+tree.genus = treeio::read.phyloxml("resources/graphlan.genus.xml")
 taxtable.df = tax_table(Hartwig) %>% as.data.frame() %>% rownames_to_column("taxId")
 
 # Make phylogenetic tree
 p <- ggtree::ggtree(tree.genus, layout="radial", open.angle=15, size=0.50) 
 p <- p %<+% column_to_rownames(taxtable.df, "Genus")
 
-# Get annoation dataframes
+# Get annotation dataframes
 o2.anno = taxtable.df %>% 
   left_join(aerophilicity, by = c("taxId" = "NCBI_ID")) %>% 
   column_to_rownames("Genus") %>% 
@@ -160,13 +190,6 @@ ggsave('figures/figure1/Figure-1A.pdf', p,  width = 5.25, height = 5.25,  bg = "
 
 ### Sample overview
 ```{r}
-trt.colors = pal_npg("nrc", alpha = 0.7)(10) 
-names(trt.colors) = meta(Hartwig)$treatmentType %>%  as.factor() %>% levels()
-trt.colors["Not available"] = "gray"
-
-primary.colors = microViz::distinct_palette(n = 20, pal = "brewerPlus", add = "lightgrey")
-names(primary.colors) = meta(Hartwig)$primaryTumorLocation %>% unique()
-
 # Number of samples of primary
 primary.freq = meta(Hartwig) %>% 
   count(primaryTumorLocation, treatmentType, name = "count") %>% 
@@ -278,17 +301,17 @@ ggsave("figures/figure1/Figure-1D.pdf", p, height = 6.5, width = 12)
 -----
 
 ## Characteristics of the tumor microbiome in metastatic cancer (Fig. 2)
+This section details the association of a community with tumor and patient characteristics
 
 ### Variance explained
-```{r}
+```{r, eval = F}
 # Convert to CLR
 pseq.clr = Hartwig %>% 
-  mia::makeTreeSummarizedExperimentFromPhyloseq() %>% 
-  mia::transformCounts("clr", abund_values = "counts", pseudocount = 1) %>% 
-  mia::makePhyloseqFromTreeSummarizedExperiment() 
+  transform_sample_counts(function(x) x + 1) %>% 
+  transform("clr") 
   
 # Batch correction
-mod <- model.matrix( ~ primaryTumorLocation + biopsySite + treatmentType, data = meta(pseq.clr)) 
+mod <- model.matrix( ~ primaryTumorLocation + biopsySite + treatmentType, data = sampledata.extended) 
 limma.corrected = limma::removeBatchEffect(abundances(pseq.clr), 
                                     batch = meta(pseq.clr)$sequencerType, 
                                     batch2 = meta(pseq.clr)$hospitalId,
@@ -297,14 +320,8 @@ limma.corrected = limma::removeBatchEffect(abundances(pseq.clr),
 pseq.clr.rbe <- pseq.clr
 otu_table(pseq.clr.rbe) = otu_table(limma.corrected, taxa_are_rows = T)
 
-# Extended data
-sampledata.extended = meta(pseq.clr.rbe) %>% 
-  inner_join(hla_supertypes) %>% 
-  inner_join(snv_mutsigs) %>% 
-  left_join(select(purple.data, hmfSampleId, msStatus, tml, wholeGenomeDuplication), by = "hmfSampleId")
-
+# Get data
 data = pseq.clr.rbe %>% 
-  subset_samples(sampleId %in% sampledata.extended$sampleId) %>% 
   aggregate_taxa("Genus") %>% 
   abundances(.)
 
@@ -339,7 +356,7 @@ varpar.plot = varpart.clr %>%
                               "MSI-H" = "msStatus",
                               "TML" = "tml",
                               "HLA-B44" = "B44",
-                              "HLA-B07" = "B07")) %>% 
+                              "HLA-B07" = "B07")) 
   ggplot(aes(x = reorder(feature, -mean), y = mean, fill = feature)) +
   #geom_quasirandom(size = 1, alpha = 0.20) + 
   #geom_boxplot(outlier.alpha = 0.25, width = 0.25) +
@@ -357,43 +374,405 @@ varpar.plot
 
 
 ### Aitchinson distances
-```{r}
+```{r, eval = F}
+# Get distance matrix
+dissMat = Hartwig %>% 
+  NetCoMi::netConstruct(., 
+                        measure = "euclidean",
+                        zeroMethod = "none",
+                        normMethod = "mclr", 
+                        cores = 24,
+                        sparsMethod = "none", 
+                        seed = 123456)
+
+# Make one large distance matrix
+betadisper.primary = vegan::betadisper(as.dist(dissMat$dissMat1), meta(Hartwig)$primaryTumorLocation, type = "median", bias.adjust = F) %>% 
+  with(., dist(centroids))
+
+# Shapes based on significance
+primary.sig = broom::tidy(betadisper.primary) %>% 
+  left_join(select(primary.res, Tumortype_1,Tumortype_2, p.value), by = c("item1" = "Tumortype_1", "item2" = "Tumortype_2")) %>% 
+  mutate(abs_cor = distance) %>% 
+  rename(Var1 = item1, 
+         Var2 = item2,
+         value = distance) %>% 
+  filter(p.value < 0.05)
+
+# Make a plot of distances
+primary.heatmap = ggcorrplot::ggcorrplot(as.matrix(betadisper.primary), type = "upper") +
+  geom_point(data = primary.sig, shape = 5, color = "white") +
+  scale_fill_tol(palette = "iridescent", discrete = FALSE) +
+  theme_few(base_size = 10) +
+  theme(legend.position = c(0.80, 0.25)) +
+  ggpubr::rotate_x_text(angle = 45) +
+  xlab("") +
+  ylab("") +
+  labs(fill = "Aitchinson\nDissimilarity")
+
+primary.heatmap
+ggsave("figures/figure2/Figure-2B.pdf", primary.heatmap, width = 6, height = 5)
+```
+```{r, eval = F}
+## Adonis pairwise p-value
+# Get combinations
+primary.groups = Harwtig %>% 
+  meta() %>% 
+  pull(primaryTumorLocation) %>% 
+  unique() %>% 
+  combn(., 2, simplify = T) %>% 
+  t() %>% 
+  as.data.frame()
+
+# Pairwise comparisons (cancer type)
+primary.res = map2_dfr(.x = primary.groups$V1, .y = primary.groups$V2, .f = function(x, y){
+  message(paste0("Comparing: ", x, " vs. ", y))
+  meta.sub = Hartwig %>% 
+    meta() %>% 
+    filter(primaryTumorLocation %in% c(x, y)) 
+  idx = row.names(dissMat$dissMat1) %in% meta.sub$hmfSampleId
+  dis.sub = usedist::dist_subset(dissMat$dissMat1, idx)
+  fit.sub = adonis2(dis.sub ~ primaryTumorLocation + biopsySite + hospitalId + sequencerType, data = meta.sub,  by = "margin", parallel = 12)
+  fit.sub.tidy = broom::tidy(fit.sub) %>%
+    filter(term == "primaryTumorLocation") %>% 
+    mutate(Tumortype_1 = x) %>% 
+    mutate(Tumortype_2 = y) 
+  
+  message("Done!\n")
+  return(fit.sub.tidy)
+})
+```
+
+### Hypoxia enrichment
+```{r, eval = F}
+# Get hypoxia signature anti-correlated with oxygen tolerance
+sample_data(Hartwig)$hypoxia_signature = meta(Hartwig) %>% 
+  left_join(gsva.signatures, by = "hmfSampleId") %>% 
+  pull(hypoxia_zscore) 
+
+# Make plot 
+hypoxia.boxplot = meta(Hartwig) %>% 
+  inner_join(gsva.signatures, by = "hmfSampleId") %>% 
+  mutate(primaryTumorLocation = as.factor(primaryTumorLocation)) %>% 
+  mutate(primaryTumorLocation = fct_reorder(primaryTumorLocation, hypoxia_zscore, median)) %>% 
+  ggplot(aes(x = primaryTumorLocation, y = hypoxia_zscore, fill = primaryTumorLocation)) +
+  stat_boxplot(geom = "errorbar", width = 0.25) + 
+  geom_boxplot() +
+  theme_classic2() +
+  theme(legend.position = "none") +
+  scale_fill_manual(values = primary.colors) +
+  coord_flip() +
+  xlab("Primary tumor origin") +
+  ylab("Hypoxia (zscore)")
+hypoxia.boxplot
+
+# Run Maaslin2
+hypoxia.res = Hartwig %>% 
+  subset_samples(!is.na(hypoxia_signature)) %>% 
+  run_maaslin(., 
+              transform = "NONE",
+              analysis_method = "LM",
+              normalization = "CLR",
+              min_prevalence = 0,
+              max_significance = 0.01,
+              fixed_effects = c("hypoxia_signature", "primaryTumorLocation", "biopsySite"),
+              random_effects = c("sequencerType", "hospitalId")) %>% 
+  magrittr::extract2("results") %>% 
+  filter(metadata == "hypoxia_signature") %>% 
+  mutate(statistic = coef / stderr) %>% 
+  left_join(taxtable.df, by = c("feature" = "Genus")) 
+
+# Get sorted rankings
+hypoxia.rl = hypoxia.res$statistic
+names(hypoxia.rl) = hypoxia.res$taxId
+hypoxia.rl = sort(hypoxia.rl, decreasing = T)
+
+# Run GSEA
+hypoxia.gsea <- GSEA(hypoxia.rl, TERM2GENE = select(aerophilicity, Attribute2, NCBI_ID), 
+                     pvalueCutoff = 1, 
+                     seed = 315, 
+                     by = "fgsea", minGSSize = 1, verbose = T)
+
+hypoxia.gsea@result %>% 
+  mutate(Analysis = "Hypoxia hallmark")
 
 ```
 
-
-### Hypoxia enrichment
+### MSI vs. MSS subtyping
 ```{r}
-
+# Will be added in the future due to the use of DRUP patient data. (Manuscript in Revision)
 ```
 
 
 ----
 
-
 ## Associations of the microbiome with tumor physiology (Fig. 3)
 This section involves the association of tumor microbial diversity and different features of tumor and immune signatures
 
-
-## Progeny
+### Shannon diversity
 ```{r}
+# Rarefy data
+Hartwig.rare = Hartwig %>% 
+  rarefy_even_depth(rngseed = 918, sample.size = 1500) 
 
+# Rarefied alpha diversity metrics
+rare.shannon = Hartwig.rare %>% 
+  microbiome::diversity(index = c("shannon")) %>% 
+  rownames_to_column("hmfSampleId")
+
+rare.observed = Hartwig.rare %>% 
+  microbiome::richness(index = c("observed")) %>% 
+  rownames_to_column("hmfSampleId") 
+
+rare.alpha = rare.shannon %>% 
+  left_join(rare.observed) %>% 
+  filter(hmfSampleId %in% tidepy$hmfSampleId) %>% 
+  get_residuals(formula = c("primaryTumorLocation", "biopsySite", "sequencerType", "hospitalId")) %>% 
+  remove_rownames() %>% 
+  column_to_rownames("hmfSampleId") %>% 
+  as.matrix()
 
 ```
 
-## Diff. abundance
-```{r}
+### Progeny
+```{r, eval = F}
+# Corrected feature table
+progeny.corrected = progeny %>% 
+  filter(hmfSampleId %in% row.names(rare.alpha)) %>% 
+  get_residuals(formula = c("primaryTumorLocation", "biopsySite")) 
+
+# Set names
+progeny.names = colnames(progeny.corrected)[-1]
+names(progeny.names) = progeny.names
+
+# Pan-cancer analysis
+progeny.pancancer = progeny.names %>% 
+  map_dfr(.id = "feature", .f = function(x){
+    message(paste0("Working on: ", x))
+    Y = progeny.corrected[[x]]
+    aMiAD::aMiAD(alpha = rare.alpha, Y = Y, n.perm = 5000)$aMiAD.out
+  }) %>% 
+  janitor::clean_names() %>% 
+  mutate(cancertype = "Pan-cancer") %>% 
+  mutate(feature = str_remove_all(feature, "_")) %>% 
+  mutate(feature = toupper(feature)) %>% 
+  mutate(p_value = if_else(p_value == 0, 0.0001, p_value)) 
+
+# Make plot
+progeny.pancancer.barplot = progeny.pancancer %>% 
+  mutate(fdr = p.adjust(p_value, "fdr")) %>% 
+  mutate(sig = if_else(fdr < 0.05, "*", "")) %>% 
+  ggplot(aes(x = reorder(feature, a_mi_div_es), y = a_mi_div_es, fill = a_mi_div_es, label = sig)) +
+  geom_col(color = "black") +
+  theme_few(base_size = 10.5) +
+  ggpubr::rotate_x_text(45) +
+  scale_fill_gradient2(name = "aMiAD\nscore", low = "#2600D1FF", high = "#D60C00FF") +
+  geom_text(size = 4.5, vjust = -0.25) +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.15))) +
+  xlab("PROGENy pathways") +
+  ylab("aMiAD score")
+
+progeny.pancancer.plot
+ggsave("figures/figure3/Figure-3B.pdf", progeny.pancancer.plot, height = 6.5, width = 6.5)
 
 ```
 
-## TIDEpy
-```{r}
+### TIDEpy
+```{r, eval = F}
+# Set names
+tide.names = colnames(tidepy)[-1]
+names(tide.names) = tide.names
+
+# Corrected feature table
+tidy.corrected = tidepy %>% 
+  filter(hmfSampleId %in% row.names(rare.alpha)) %>% 
+  get_residuals(formula = c("primaryTumorLocation", "biopsySite", "cd45")) 
+
+# Pan-cancer analysis
+tide.pancancer = tide.names %>% 
+  map_dfr(.id = "feature", .f = function(x){
+    message(paste0("Working on: ", x))
+    Y = tidy.corrected[[x]]
+    aMiAD::aMiAD(alpha = rare.alpha, Y = Y, n.perm = 5000)$aMiAD.out
+  }) %>% 
+  janitor::clean_names() %>% 
+  mutate(cancertype = "Pan-cancer") %>% 
+  mutate(feature = str_replace(feature, "_", "-")) %>% 
+  mutate(feature = toupper(feature)) %>% 
+  mutate(p_value = if_else(p_value == 0, 0.001, p_value)) 
+
+tide.pancancer.barplot = tide.pancancer %>% 
+  mutate(fdr = p.adjust(p_value, "fdr")) %>% 
+  mutate(sig = if_else(fdr < 0.05, "*", "")) %>% 
+  ggplot(aes(x = reorder(feature, a_mi_div_es), y = a_mi_div_es, fill = a_mi_div_es, label = sig)) +
+  geom_col(color = "black") +
+  theme_few(base_size = 11) +
+  coord_flip() +
+  scale_fill_gradient2(name = "aMiAD\nscore", low = "#2600D1FF", high = "#D60C00FF") +
+  geom_text(size = 4.5, hjust = -1) +
+  scale_y_continuous(expand = expansion(mult = c(0.05, 0.15))) +
+  theme(legend.position = "right") +
+  xlab("TIDE") +
+  ylab("aMiAD score")
+```
+
+### CIBERSORT
+```{r, eval = F}
+# Corrected feature table
+cibersort.abs.corrected = cibersort %>% 
+  filter(hmfSampleId %in% row.names(rare.alpha)) %>% 
+  get_residuals(formula = c("primaryTumorLocation", "biopsySite", "cd45")) 
+
+# Set names
+cibersort.names = colnames(cibersort.abs.corrected)[-1]
+names(cibersort.names) = cibersort.names
+
+# Pan-cancer analysis
+cibersort.abs.pancancer = cibersort.names %>% 
+  map_dfr(.id = "feature", .f = function(x){
+    message(paste0("Working on: ", x))
+    Y = cibersort.abs.corrected[[x]]
+    aMiAD::aMiAD(alpha = rare.alpha, Y = Y, n.perm = 5000)$aMiAD.out
+  }) %>% 
+  janitor::clean_names() %>% 
+  mutate(cancertype = "Pan-cancer") %>% 
+  mutate(feature = toupper(feature)) %>% 
+  mutate(p_value = if_else(p_value == 0, 0.001, p_value)) %>% 
+  mutate(group = fct_collapse(feature, 
+                              "B cell" = c("B_CELL_NAIVE", "B_CELL_MEMORY", "B_CELL_PLASMA"),
+                              "T cell" = c("T_CELL_CD8", "T_CELL_CD4_NAIVE", "T_CELL_CD4_MEMORY_RESTING", "T_CELL_CD4_MEMORY_ACTIVATED", 
+                                           "T_CELL_FOLLICULAR_HELPER", "T_CELL_REGULATORY_TREGS", "T_CELL_GAMMA_DELTA"),
+                              "NK cell" = c("NK_CELL_RESTING", "NK_CELL_ACTIVATED"),
+                              "Macrophage & monocyte" = c("MACROPHAGE_M0", "MACROPHAGE_M1", "MACROPHAGE_M2", "MONOCYTE"),
+                              "Myeloid" = c("EOSINOPHIL", "NEUTROPHIL", "MAST_CELL_RESTING", "MAST_CELL_ACTIVATED", "MYELOID_DENDRITIC_CELL_RESTING", "MYELOID_DENDRITIC_CELL_ACTIVATED") ))
+
+# Make plot
+cibersort.pancancer.plot = cibersort.abs.pancancer %>% 
+  mutate(fdr = p.adjust(p_value, "fdr")) %>% 
+  mutate(sig = if_else(p_value < 0.05, "*", "")) %>% 
+  mutate(feature = fct_recode(feature, 
+                              "B-cell naive" = "B_CELL_NAIVE",
+                              "B-cell memory" = "B_CELL_MEMORY",
+                              "B-cell plasma" = "B_CELL_PLASMA",
+                              "CD8" = "T_CELL_CD8",
+                              "CD4 naive" = "T_CELL_CD4_NAIVE",
+                              "CD4 resting" = "T_CELL_CD4_MEMORY_RESTING",
+                              "CD4 memory" = "T_CELL_CD4_MEMORY_ACTIVATED",
+                              "T follicular\nhelper cells" = "T_CELL_FOLLICULAR_HELPER",
+                              "Treg" = "T_CELL_REGULATORY_TREGS",
+                              "γδ cells" = "T_CELL_GAMMA_DELTA",
+                              "NK resting" = "NK_CELL_RESTING",
+                              "NK activated" = "NK_CELL_ACTIVATED",
+                              "Monocyte" = "MONOCYTE",
+                              "Macrophage (M0)" = "MACROPHAGE_M0",
+                              "Macrophage (M1)" = "MACROPHAGE_M1",
+                              "Macrophage (M2)" = "MACROPHAGE_M2",
+                              "DC resting" = "MYELOID_DENDRITIC_CELL_RESTING",
+                              "DC activated" = "MYELOID_DENDRITIC_CELL_ACTIVATED",
+                              "Mast cell activated" = "MAST_CELL_ACTIVATED",
+                              "Mast cell resting" = "MAST_CELL_RESTING",
+                              "Eosinophils" = "EOSINOPHIL",
+                              "Neutrophils" = "NEUTROPHIL")) %>% 
+  mutate(direction = if_else(p_value < 0.05, "sig", "ns")) %>% 
+  ggplot(aes(x = reorder(feature, a_mi_div_es), y = a_mi_div_es, fill = a_mi_div_es, label = sig)) +
+  geom_bar(stat="identity", alpha=0.85, color = "black") +
+    ggplot2::coord_polar(
+      direction = -1,
+      start = 3.1415 * pi / 2,
+      clip = "on"
+    ) +
+  theme_minimal(base_size = 11) +
+  geom_hline(yintercept = 0) +
+  geom_vline(xintercept = -16.75, linetype = 20, alpha = 0.75) +
+  scale_y_continuous(breaks = c(-2, -1, 0, 1, 2, 3, 4)) +
+  scale_fill_gradient2(name = "aMiAD\nscore", low = "#2600D1FF", high = "#D60C00FF") +
+  theme(legend.position = "none", 
+        axis.text.x = element_text(face="bold")) +
+  geom_text(size = 4.5, hjust = -0.75) +
+  xlab("") +
+  ylab("")
+
+cibersort.pancancer.plot
 
 ```
 
-## CIBERSORT
+### Diff. abundance
 ```{r}
+# Import gene expression data
+dge = readRDS("data/dge.rda")
 
+# Regress out residuals for diversity
+diversity.corrected = Hartwig %>% 
+  rarefy_even_depth(rngseed = 918, sample.size = 1500) %>% 
+  diversity(index = "shannon") %>% 
+  rownames_to_column("hmfSampleId") %>% 
+  left_join(meta(Hartwig)) %>% 
+  column_to_rownames("hmfSampleId") %>% 
+  glm(shannon ~ primaryTumorLocation + biopsySite + hospitalId + sequencerType, data = ., family = "gaussian") %>% 
+  broom::augment() %>% 
+  dplyr::rename(hmfSampleId = `.rownames`, 
+         residual = `.resid`) %>% 
+  mutate(diff = residual - mean(residual)) %>% 
+  select(hmfSampleId, shannon, residual, diff) %>% 
+  left_join(meta(Hartwig), by = "hmfSampleId")
+
+# Limma-voom normalization
+idx = intersect(colnames(dge), diversity.corrected$sampleId)
+design <- model.matrix(~ primaryTumorLocation + biopsySite, data = filter(diversity.corrected, sampleId %in% idx))
+v <- limma::voom(dge, design)
+
+# Differential expression
+design <- model.matrix(~ residual + primaryTumorLocation + biopsySite, data = filter(diversity.corrected, sampleId %in% idx))
+fit <- lmFit(v, design)
+contrasts.res <- contrasts.fit(fit, coefficients = 2)
+ebayes.fit <- eBayes(contrasts.res)
+
+# Get top genes
+top.table <- topTable(ebayes.fit, sort.by = "P", n = Inf, adjust.method = "BH") %>% 
+  rownames_to_column("symbol") %>% 
+  left_join(grch38) %>% 
+  mutate(fdr = p.adjust(P.Value, "fdr")) 
+
+# Get entrez symbol ranked
+results_sig_entrez <- top.table %>% 
+  filter(!is.na(entrez)) %>% 
+  distinct(entrez, .keep_all = T)
+
+gene_matrix <- results_sig_entrez$logFC 
+names(gene_matrix) <- results_sig_entrez$entrez
+gene_matrix = sort(gene_matrix, decreasing = T)
+
+# GSEA
+y <- gsePathway(gene_matrix, 
+                pvalueCutoff = 0.05,
+                minGSSize = 50,
+                by = "fgsea", 
+                seed = 918,
+                eps = 1e-20,
+                pAdjustMethod = "holm", 
+                verbose = T)
+
+# Get GSEA data
+gsea.shannon.data = y@result %>% 
+  as_tibble() %>% 
+  mutate(names = str_wrap(Description, width = 45)) %>% 
+  mutate(sig = if_else(qvalues < 0.05, "sig", "ns")) %>% 
+  mutate(`-log10(qval)` = -log10(qvalues))
+
+# NES score (dotplot)
+shannon.gsea.plot = gsea.shannon.data %>% 
+  slice_min(order_by = qvalues, n = 18) %>% 
+  mutate(`Association` = if_else(NES > 0, "Higher diversity", "Lower diversity")) %>% 
+  mutate(`Association` = fct_relevel(`Association`, "Lower diversity")) %>% 
+  ggplot(aes(x = reorder(names, NES), y = NES, color = `Association`, size = `-log10(qval)`)) +
+  geom_point() +
+  coord_flip() +
+  facet_grid(.~Association, scales = "free") +
+  theme_few(base_size = 11) +
+  scale_color_brewer(palette = "Set1", direction = -1) +
+  xlab("Reactome pathways") +
+  ylab("Enrichment score (normalized)")
+
+shannon.gsea.plot
 ```
 
 
@@ -401,14 +780,127 @@ This section involves the association of tumor microbial diversity and different
 
 ## Dynamics of the tumor microbiome over the course of systemic anticancer treatment (Fig. 4)
 ```{r}
-
+# Will be added in the future. Requires further de-anonymization of clinical data
 ```
 
 
 ## Fusobacterium presence is negatively associated with response to ICB in NSCLC (Fig. 5)
+
+### Diff. abundance
 ```{r}
+# Phyloseq object with clinical data added for cohort (Included within larger cohort)
+nsclc.pseq = readRDS("data/nsclc.rda")
+
+# ANCOM-BC
+tango.ancombc = nsclc.pseq %>% 
+  ANCOMBC::ancombc2(data = ., 
+                    group = "clinical_benefit", 
+                    fix_formula = "clinical_benefit + Lymphnode", 
+                    rand_formula = "(1|sequencerType) + (1|hospitalId)", 
+                    struc_zero = T, 
+                    prv_cut = 0.20,
+                    p_adj_method = "fdr",
+                    pseudo_sens = T,
+                    n_cl = 8)
+
+# Get results
+tango.ancombc.res = tango.ancombc$res %>% 
+  relocate(p_clinical_benefitYES) %>% 
+  left_join(as.data.frame(tax_table(nsclc.pseq)) %>% rownames_to_column("taxon")) %>% 
+  relocate(Kingdom:Genus) %>% 
+  mutate(fdr = p.adjust(p_clinical_benefitYES, "fdr")) %>% 
+  arrange(p_clinical_benefitYES)
+
+# Plot volcano plot
+tango.volcano = tango.ancombc.res %>% 
+  ggplot(aes(x = lfc_clinical_benefitYES, y = -log10(p_clinical_benefitYES), label = Genus)) +
+  geom_point(size = 3, alpha = 0.50) +
+  geom_point(data = filter(tango.ancombc.res, p_clinical_benefitYES < 0.05), size = 3, alpha = 0.50, color = "red") +
+  xlab("log fold change") +
+  ylab("-log10(p-value)") +
+  theme_classic2(base_family = "Helvetica") +
+  geom_hline(yintercept = 1.3, linetype = 20, alpha = 0.50) +
+  geom_vline(xintercept = 0, linetype = 20, alpha = 0.50) +
+  ggrepel::geom_text_repel(data = filter(tango.ancombc.res, p_clinical_benefitYES < 0.05), fontface = "italic") +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position = c(0.70, 0.90))  +
+  xlim(-1.5,1) +
+  xlab("Fold change (log2)") +
+  ylab("-log10(p-value)")
+
+tango.volcano
+```
+
+### Fusobacterium
+```{r}
+# Classify Fusobacterium
+fuso.status.all = Hartwig %>% 
+  transform(transform = "compositional") %>% 
+  psmelt() %>%
+  filter(Genus == "Fusobacterium") %>%
+  select(Sample, Genus, Abundance) %>% 
+  rename(sampleId = Sample) %>% 
+  pivot_wider(id_cols = sampleId, names_from = Genus, values_from = Abundance) %>% 
+  mutate(Fusobacterium = Fusobacterium * 100) %>% 
+  mutate(Fn = if_else(Fusobacterium > quantile(Fusobacterium, 0.75), "High", "Low")) 
+
+# Plot density/histogram
+dat <- with(density(fuso.status.all$Fusobacterium), data.frame(x, y))
+
+fuso.density = dat %>% 
+  ggplot(aes(x = x, y = y )) +
+  geom_line() +
+  geom_area(mapping = aes(x = ifelse(x > quantile(fuso.status.all$Fusobacterium, 0.75), x, 0)), fill = "#e41a1c")+
+  geom_area(mapping = aes(x = ifelse(x <= quantile(fuso.status.all$Fusobacterium, 0.75), x, 0)), fill = "#377eb8") +
+  geom_vline(xintercept = quantile(fuso.status.all$Fusobacterium, 0.75), alpha = 0.50, linetype = 20) +
+  annotate("text", x = quantile(fuso.status.all$Fusobacterium, 0.75) + 10, y = 0.65, label = "75th percentile", size = 3) +
+  theme_classic2(base_size = 11) +
+  xlab("Fusobacterium (%)") +
+  ylab("Density")
 
 ```
+
+### Survival (PFS/OS)
+```{r}
+# Filter samples
+tango.lung.fil = meta(nsclc.pseq) %>% 
+  filter(treatment %in% c("Durvalumab", "Nivolumab", "Pembrolizumab")) %>%
+  select(-gender, -purity) %>% 
+  left_join(select(purple.data, sampleId, msStatus, tml, tmbPerMb, tmbStatus, tmlStatus, wholeGenomeDuplication)) %>% 
+  left_join(tango.drivers) %>% 
+  mutate(KEAP1 = replace_na(KEAP1, 0)) %>% 
+  mutate(STK11 = replace_na(STK11, 0)) %>% 
+  mutate(hasResistanceDriver = if_else(KEAP1 == 1 | STK11 == 1, TRUE, FALSE)) %>% 
+  mutate(hasEGFR = if_else(KEAP1 == 1 | STK11 == 1, TRUE, FALSE))
+
+# Multivariate model
+tango.fuso.pretty = fuso.status.all %>% 
+  inner_join(tango.lung.fil) %>% 
+  rename(`Lymph node` = Lymphnode) %>% 
+  mutate(`Mut. load` = if_else(tmlStatus == "HIGH", "High", "Low")) %>% 
+  mutate(`Mut. load` = fct_relevel(`Mut. load`, "Low"))
+  
+
+# - - - - - - - - - - - - - 
+# Progression free survival
+pfs.fuso.fit <- coxph(formula = Surv(PFS, Progression) ~ Fusobacterium + `Mut. load` + `Lymph node` + STK11 + KEAP1, data = tango.fuso.pretty)
+summary(pfs.fuso.fit)
+
+pfs.fuso.forest = ggforest(pfs.fuso.fit, main = "Hazard Ratio (PFS)", data = tango.fuso.pretty) +
+  theme_few(base_size = 11)
+pfs.fuso.forest
+
+# - - - - - - - - - - - - - 
+# Overall survival
+os.fuso.fit <- coxph(formula = Surv(OS, Death) ~ Fusobacterium + `Mut. load` + `Lymph node` + STK11 + KEAP1, data = tango.fuso.pretty)
+summary(os.fuso.fit)
+
+os.fuso.forest = ggforest(os.fuso.fit, main = "Hazard Ratio (OS)", data = tango.fuso.pretty) +
+  theme_few(base_size = 13)
+os.fuso.forest
+```
+
 
 ## Session information
 ```{r}

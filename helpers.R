@@ -215,4 +215,88 @@ get_intersection = function(kraken2, pathseq, pcutoff = 1, kcutoff = 10){
   return(results)
 }
 
+# Run maaslin2
+run_maaslin = function(pseq.in, 
+                       transform = "LOG", 
+                       analysis_method = "LM", 
+                       normalization = "TSS", 
+                       fixed_effects = NULL, 
+                       random_effects = NULL, 
+                       max_significance = 0.25, 
+                       min_prevalence = 0.10, 
+                       min_variance = 0.0, 
+                       min_abundance = 0.0,
+                       reference = c("primaryTumorLocation,CUP", "biopsySite,CNS")) {
+  
+  # get temporary directory
+  tmp.dir = tempdir()
+  
+  # Format counts table
+  pseq.in %>% 
+    aggregate_taxa(level = "Genus") %>% 
+    abundances() %>% 
+    t() %>% 
+    as.data.frame() %>% 
+    rownames_to_column("ID") %>% 
+    write_tsv(paste0(tmp.dir, "/maaslin2.counts.tsv"))
+  
+  # Format metadata
+  meta(pseq.in) %>% 
+    rownames_to_column("ID") %>% 
+    write_tsv(paste0(tmp.dir, "/maaslin2.metadata.tsv"))
+  
+  # Run command
+  library(Maaslin2)
+  fit_data <- Maaslin2( input_data = paste0(tmp.dir, "/maaslin2.counts.tsv"), 
+                        input_metadata = paste0(tmp.dir, "/maaslin2.metadata.tsv"), 
+                        output = paste0(tmp.dir, "/outdir"), 
+                        transform = transform,
+                        normalization = normalization,
+                        fixed_effects = fixed_effects,
+                        random_effects = random_effects,
+                        analysis_method = analysis_method,
+                        standardize = T,
+                        cores = 2, 
+                        min_abundance = min_abundance,
+                        min_prevalence = min_prevalence,
+                        max_significance = max_significance,
+                        plot_heatmap = F, 
+                        plot_scatter = F,
+                        reference = reference)
+  
+  
+  # Import results
+  results = read_tsv( paste0(tmp.dir, "/outdir/all_results.tsv"))
+  sig_results = read_tsv( paste0(tmp.dir, "/outdir/significant_results.tsv"))
+  
+  # Return
+  return(list(results = results, sig_results = sig_results))
+  
+}
+
+# Regress out covariates
+get_residuals = function(input.table, formula = c("primaryTumorLocation", "biopsySite")) {
+  input.table.long = input.table %>% 
+    pivot_longer(cols = -hmfSampleId, names_to = "signatures", values_to = "y") %>% 
+    inner_join(meta(Hartwig)) %>% 
+    left_join(select(immune.signatures, hmfSampleId, cd45)) %>% 
+    #left_join(select(purple.data, hmfSampleId, tml, tmbPerMb, tmbStatus, tmlStatus)) %>% 
+    as_tibble() 
+  
+  unique(input.table.long$signatures) %>% 
+    map_dfr(.f = function(x) {
+      input.table.long %>% 
+        filter(signatures == x) %>% 
+        tibble::column_to_rownames("hmfSampleId") %>% 
+        glm(as.formula(paste("y", paste(formula, collapse=" + "), sep=" ~ ")), data = ., family = "gaussian") %>% 
+        broom::augment() %>% 
+        rename(hmfSampleId = `.rownames`,
+               residual = `.resid`) %>% 
+        mutate(diff = residual - mean(residual)) %>% 
+        select(hmfSampleId, diff) %>% 
+        mutate(signatures = x)
+    }) %>% 
+    pivot_wider(id_cols = hmfSampleId, names_from = signatures, values_from = diff) %>% 
+    as.data.frame() 
+}
 

@@ -7,4 +7,5 @@ renv/*
 ._*
 mapping-analysis_cache/*
 mapping-analysis_files/*
-data/sample-extended.csv
+data/*
+figures/*/*.pdf
