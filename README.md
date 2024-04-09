@@ -40,6 +40,12 @@ The repository includes the following files:
 - `figures/`: Directory containing the results of the analysis.
 - `mapping-analysis.Rmd`: Markdown file providing an overview of the mapping analysis.
 
+## Data
+Compositions of the data can be found:
+- **MicrobeDS**: https://github.com/twbattaglia/MicrobeDS 
+- **Zenodo**: [Directory containing the results of the analysis.](https://zenodo.org/records/10777510)  
+
+
 ## Contributors
 
 - [Thomas W. Battaglia](https://github.com/twbattaglia) - [@twbattaglia](https://github.com/twbattaglia)
